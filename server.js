@@ -133,6 +133,6 @@ app.delete('/api/inventory/:id', (req, res) => {
     });
 });
 
-// app.listen(PORT, () => {
-//     console.log(`السيرفر يعمل بنجاح على: http://localhost:${PORT}`);
-// });
+    app.listen(PORT, () => {
+     console.log(`السيرفر يعمل بنجاح على: http://localhost:${PORT}`);
+  });
