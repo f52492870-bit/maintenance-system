@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// الاتصال بقاعدة البيانات PostgreSQL
+// الاتصال بقاعدة بيانات PostgreSQL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
@@ -56,6 +56,7 @@ async function initDatabase() {
 
 initDatabase();
 
+// إنشاء كود الطلب
 function generateOrderCode() {
     const d = new Date();
 
