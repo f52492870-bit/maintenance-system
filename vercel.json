@@ -1,6 +1,6 @@
 {
  
-  "builds",: [
+  "builds": [
     {
       "src": "server.js",
       "use": "@vercel/node"
@@ -13,5 +13,4 @@
     }
   ]
 }
-Compose
-Write to Ahmed Essam
+
