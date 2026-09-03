@@ -4,7 +4,6 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -16,7 +15,7 @@ const db = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// إنشاء الجداول تلقائياً في أول تشغيل
+// إنشاء الجداول تلقائياً
 async function initDb() {
   await db.execute(`CREATE TABLE IF NOT EXISTS tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +157,11 @@ app.delete('/api/inventory/:id', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`السيرفر يعمل بنجاح على المنفذ: ${PORT}`);
-});
+// تشغيل السيرفر فقط لو كان يعمل محلياً
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
+
+// تصدير التطبيق لبيئة Vercel Serverless
+module.exports = app;
