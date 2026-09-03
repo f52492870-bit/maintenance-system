@@ -9,47 +9,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// إنشاء عميل قاعدة البيانات بشكل ديناميكي
+// إنشاء العميل المباشر بدون ميزات الـ Migration الضامنة للأخطاء
 function getDbClient() {
     const url = process.env.TURSO_DATABASE_URL;
     const authToken = process.env.TURSO_AUTH_TOKEN;
 
     if (!url || !authToken) {
-        throw new Error("المتغيرات البيئية TURSO_DATABASE_URL أو TURSO_AUTH_TOKEN غير معرفة في Vercel!");
+        throw new Error("المتغيرات البيئية غير مكتملة في Vercel");
     }
 
     return createClient({ url, authToken });
-}
-
-// دالة إنشاء الجداول وتأكيد وجودها
-async function ensureTablesExist(db) {
-    await db.execute(`
-        CREATE TABLE IF NOT EXISTS tickets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            orderCode TEXT,
-            customerName TEXT,
-            phone TEXT,
-            deviceType TEXT,
-            deviceSerial TEXT,
-            problem TEXT,
-            status TEXT DEFAULT 'قيد الانتظار',
-            estimatedHours INTEGER DEFAULT 2,
-            techNotes TEXT DEFAULT '',
-            repairCost REAL DEFAULT 0,
-            partCost REAL DEFAULT 0,
-            totalCost REAL DEFAULT 0,
-            createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `);
-
-    await db.execute(`
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            quantity INTEGER,
-            price REAL
-        )
-    `);
 }
 
 function generateOrderCode() {
@@ -67,7 +36,6 @@ function generateOrderCode() {
 app.get('/api/tickets', async (req, res) => {
     try {
         const db = getDbClient();
-        await ensureTablesExist(db);
         const result = await db.execute("SELECT * FROM tickets WHERE status != 'إنهاء واختفاء' ORDER BY id DESC");
         res.json(result.rows || []);
     } catch (err) {
@@ -94,7 +62,6 @@ app.get('/api/tickets/:id', async (req, res) => {
 app.post('/api/tickets', async (req, res) => {
     try {
         const db = getDbClient();
-        await ensureTablesExist(db);
 
         const { 
             customerName = '', 
@@ -174,7 +141,6 @@ app.put('/api/tickets/:id', async (req, res) => {
 app.get('/api/inventory', async (req, res) => {
     try {
         const db = getDbClient();
-        await ensureTablesExist(db);
         const result = await db.execute('SELECT * FROM inventory ORDER BY id DESC');
         res.json(result.rows || []);
     } catch (err) {
@@ -186,7 +152,6 @@ app.get('/api/inventory', async (req, res) => {
 app.post('/api/inventory', async (req, res) => {
     try {
         const db = getDbClient();
-        await ensureTablesExist(db);
         const { name = '', quantity = 0, price = 0 } = req.body;
 
         const result = await db.execute({
@@ -232,11 +197,9 @@ app.delete('/api/inventory/:id', async (req, res) => {
     }
 });
 
-// التشغيل المحلي أو التصدير لـ Vercel
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => console.log(`السيرفر يعمل على: http://localhost:${PORT}`));
 }
 
 module.exports = app;
-
