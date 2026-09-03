@@ -15,7 +15,7 @@ const db = createClient({
     authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// تهيئة الجداول في قواعد البيانات تلقائياً
+// إنشاء الجداول في حالة عدم وجودها
 async function initDb() {
     try {
         await db.execute(`
@@ -60,16 +60,20 @@ function generateOrderCode() {
     return `ORD-${dateStr}-${randomNum}`;
 }
 
-// APIs التذاكر والأجهزة
+// ----------------- APIs التذاكر والأجهزة -----------------
+
+// جلب التذاكر
 app.get('/api/tickets', async (req, res) => {
     try {
         const result = await db.execute("SELECT * FROM tickets WHERE status != 'إنهاء واختفاء' ORDER BY id DESC");
         res.json(result.rows || []);
     } catch (err) {
+        console.error("Error fetching tickets:", err);
         res.status(500).json({ error: err.message, rows: [] });
     }
 });
 
+// جلب تذكرة محددة
 app.get('/api/tickets/:id', async (req, res) => {
     try {
         const result = await db.execute({
@@ -78,95 +82,147 @@ app.get('/api/tickets/:id', async (req, res) => {
         });
         res.json(result.rows[0] || {});
     } catch (err) {
+        console.error("Error fetching single ticket:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
+// إضافة تذكرة جديدة
 app.post('/api/tickets', async (req, res) => {
-    const { customerName, phone, deviceType, deviceSerial, problem, estimatedHours, repairCost, partCost } = req.body;
-    const orderCode = generateOrderCode();
-    const rCost = Number(repairCost) || 0;
-    const pCost = Number(partCost) || 0;
-    const totalCost = rCost + pCost;
-
     try {
+        const { 
+            customerName = '', 
+            phone = '', 
+            deviceType = '', 
+            deviceSerial = 'غير محدد', 
+            problem = '', 
+            estimatedHours = 2, 
+            repairCost = 0, 
+            partCost = 0 
+        } = req.body;
+
+        const orderCode = generateOrderCode();
+        const rCost = Number(repairCost) || 0;
+        const pCost = Number(partCost) || 0;
+        const totalCost = rCost + pCost;
+
         const result = await db.execute({
-            sql: `INSERT INTO tickets (orderCode, customerName, phone, deviceType, deviceSerial, problem, estimatedHours, repairCost, partCost, totalCost) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            args: [orderCode, customerName, phone, deviceType, deviceSerial || 'غير محدد', problem, Number(estimatedHours) || 2, rCost, pCost, totalCost]
+            sql: `INSERT INTO tickets (
+                orderCode, customerName, phone, deviceType, deviceSerial, problem, estimatedHours, repairCost, partCost, totalCost
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+                String(orderCode), 
+                String(customerName), 
+                String(phone), 
+                String(deviceType), 
+                String(deviceSerial || 'غير محدد'), 
+                String(problem), 
+                Number(estimatedHours) || 2, 
+                rCost, 
+                pCost, 
+                totalCost
+            ]
         });
-        res.json({ id: Number(result.lastInsertRowid), orderCode });
+
+        res.json({ 
+            id: Number(result.lastInsertRowid), 
+            orderCode 
+        });
     } catch (err) {
+        console.error("Error creating ticket:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
+// تحديث تذكرة
 app.put('/api/tickets/:id', async (req, res) => {
-    const { status, estimatedHours, techNotes, repairCost, partCost } = req.body;
-    const rCost = Number(repairCost) || 0;
-    const pCost = Number(partCost) || 0;
-    const totalCost = rCost + pCost;
-
     try {
+        const { status = 'قيد الانتظار', estimatedHours = 0, techNotes = '', repairCost = 0, partCost = 0 } = req.body;
+        const rCost = Number(repairCost) || 0;
+        const pCost = Number(partCost) || 0;
+        const totalCost = rCost + pCost;
+
         const result = await db.execute({
             sql: `UPDATE tickets SET status = ?, estimatedHours = ?, techNotes = ?, repairCost = ?, partCost = ?, totalCost = ? WHERE id = ?`,
-            args: [status, Number(estimatedHours) || 0, techNotes || '', rCost, pCost, totalCost, req.params.id]
+            args: [
+                String(status), 
+                Number(estimatedHours) || 0, 
+                String(techNotes || ''), 
+                rCost, 
+                pCost, 
+                totalCost, 
+                req.params.id
+            ]
         });
-        res.json({ updated: result.rowsAffected });
+
+        res.json({ updated: Number(result.rowsAffected) });
     } catch (err) {
+        console.error("Error updating ticket:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// APIs المخزون
+// ----------------- APIs المخزون -----------------
+
+// جلب المخزون
 app.get('/api/inventory', async (req, res) => {
     try {
         const result = await db.execute('SELECT * FROM inventory ORDER BY id DESC');
         res.json(result.rows || []);
     } catch (err) {
+        console.error("Error fetching inventory:", err);
         res.status(500).json({ error: err.message, rows: [] });
     }
 });
 
+// إضافة صنف جديد للمخزون
 app.post('/api/inventory', async (req, res) => {
-    const { name, quantity, price } = req.body;
     try {
+        const { name = '', quantity = 0, price = 0 } = req.body;
         const result = await db.execute({
             sql: 'INSERT INTO inventory (name, quantity, price) VALUES (?, ?, ?)',
-            args: [name, Number(quantity), Number(price)]
+            args: [String(name), Number(quantity) || 0, Number(price) || 0]
         });
+
         res.json({ id: Number(result.lastInsertRowid), name, quantity, price });
     } catch (err) {
+        console.error("Error adding inventory:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
+// تعديل صنف في المخزون
 app.put('/api/inventory/:id', async (req, res) => {
-    const { name, quantity, price } = req.body;
     try {
+        const { name = '', quantity = 0, price = 0 } = req.body;
         const result = await db.execute({
             sql: 'UPDATE inventory SET name = ?, quantity = ?, price = ? WHERE id = ?',
-            args: [name, Number(quantity), Number(price), req.params.id]
+            args: [String(name), Number(quantity) || 0, Number(price) || 0, req.params.id]
         });
-        res.json({ updated: result.rowsAffected });
+
+        res.json({ updated: Number(result.rowsAffected) });
     } catch (err) {
+        console.error("Error updating inventory:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
+// حذف صنف من المخزون
 app.delete('/api/inventory/:id', async (req, res) => {
     try {
         const result = await db.execute({
             sql: 'DELETE FROM inventory WHERE id = ?',
             args: [req.params.id]
         });
-        res.json({ deleted: result.rowsAffected });
+
+        res.json({ deleted: Number(result.rowsAffected) });
     } catch (err) {
+        console.error("Error deleting inventory:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// لتشغيل السيرفر محلياً أو تصديره لـ Vercel
+// تشغيل السيرفر محلياً أو تصديره لـ Vercel
 if (process.env.NODE_ENV !== 'production') {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => console.log(`السيرفر يعمل على: http://localhost:${PORT}`));
