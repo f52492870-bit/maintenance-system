@@ -1,115 +1,207 @@
-const express = require('express');
-const { Pool } = require('pg');
-const cors = require('cors');
-const path = require('path');
+const express = require("express");
+const { Pool } = require("pg");
+const cors = require("cors");
+const path = require("path");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.urlencoded({ extended: true }));
 
-// الاتصال بقاعدة بيانات PostgreSQL
+// ملفات الواجهة
+app.use(express.static(path.join(__dirname, "public")));
+
+// ===============================
+// DATABASE
+// ===============================
+
+if (!process.env.DATABASE_URL) {
+    console.error("DATABASE_URL is not configured");
+}
+
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
         rejectUnauthorized: false
+    },
+    connectionTimeoutMillis: 10000
+});
+
+// ===============================
+// DATABASE INITIALIZATION
+// ===============================
+
+let databaseReady = false;
+let databaseInitPromise = null;
+
+async function initDatabase() {
+    if (databaseReady) {
+        return;
+    }
+
+    if (databaseInitPromise) {
+        return databaseInitPromise;
+    }
+
+    databaseInitPromise = (async () => {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS tickets (
+                    id SERIAL PRIMARY KEY,
+                    "orderCode" TEXT,
+                    "customerName" TEXT,
+                    phone TEXT,
+                    "deviceType" TEXT,
+                    "deviceSerial" TEXT,
+                    problem TEXT,
+                    status TEXT DEFAULT 'قيد الانتظار',
+                    "estimatedHours" INTEGER DEFAULT 2,
+                    "techNotes" TEXT DEFAULT '',
+                    "repairCost" REAL DEFAULT 0,
+                    "partCost" REAL DEFAULT 0,
+                    "totalCost" REAL DEFAULT 0,
+                    "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS inventory (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT,
+                    quantity INTEGER DEFAULT 0,
+                    price REAL DEFAULT 0
+                )
+            `);
+
+            databaseReady = true;
+
+            console.log("Database initialized successfully");
+        } catch (error) {
+            console.error("Database initialization error:", error);
+            throw error;
+        }
+    })();
+
+    return databaseInitPromise;
+}
+
+// ===============================
+// HEALTH CHECK
+// ===============================
+
+app.get("/api/test", async (req, res) => {
+    try {
+        await initDatabase();
+
+        res.json({
+            success: true,
+            message: "Workshop server is working"
+        });
+    } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+            success: false,
+            error: "Database connection failed"
+        });
     }
 });
 
-// إنشاء الجداول
-async function initDatabase() {
-    try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS tickets (
-                id SERIAL PRIMARY KEY,
-                "orderCode" TEXT,
-                "customerName" TEXT,
-                phone TEXT,
-                "deviceType" TEXT,
-                "deviceSerial" TEXT,
-                problem TEXT,
-                status TEXT DEFAULT 'قيد الانتظار',
-                "estimatedHours" INTEGER DEFAULT 2,
-                "techNotes" TEXT DEFAULT '',
-                "repairCost" REAL DEFAULT 0,
-                "partCost" REAL DEFAULT 0,
-                "totalCost" REAL DEFAULT 0,
-                "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
 
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS inventory (
-                id SERIAL PRIMARY KEY,
-                name TEXT,
-                quantity INTEGER,
-                price REAL
-            )
-        `);
+// ===============================
+// HOME
+// ===============================
 
-        console.log('تم الاتصال بقاعدة بيانات PostgreSQL وإنشاء الجداول بنجاح.');
-    } catch (err) {
-        console.error('خطأ في إنشاء قاعدة البيانات:', err.message);
-    }
-}
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
-initDatabase();
 
-// إنشاء كود الطلب
+// ===============================
+// ORDER CODE
+// ===============================
+
 function generateOrderCode() {
     const d = new Date();
 
-    const dateStr =
-        d.getFullYear().toString() +
-        String(d.getMonth() + 1).padStart(2, '0') +
-        String(d.getDate()).padStart(2, '0');
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
 
     const randomNum = Math.floor(1000 + Math.random() * 9000);
 
-    return ORD-${dateStr}-${randomNum};
+    return ORD-${year}${month}${day}-${randomNum};
 }
 
 
-// ==================== TICKETS ====================
+// ===============================
+// TICKETS
+// ===============================
 
-// جلب الأجهزة التي لم تُنهَ واختفِ
-app.get('/api/tickets', async (req, res) => {
+// GET ALL TICKETS
+app.get("/api/tickets", async (req, res) => {
     try {
+        await initDatabase();
+
         const result = await pool.query(`
-            SELECT * FROM tickets
+            SELECT *
+            FROM tickets
             WHERE status != 'إنهاء واختفاء'
             ORDER BY id DESC
         `);
 
         res.json(result.rows);
-    } catch (err) {
-        console.error('خطأ في جلب التذاكر:', err);
-        res.status(500).json({ error: err.message });
+    } catch (error) {
+        console.error("GET /api/tickets error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// جلب تذكرة برقم ID أو Order Code
-app.get('/api/tickets/:id', async (req, res) => {
+// GET ONE TICKET
+app.get("/api/tickets/:id", async (req, res) => {
     try {
+        await initDatabase();
+
+        const value = req.params.id;
+
         const result = await pool.query(
-            `SELECT * FROM tickets
-             WHERE id::text = $1 OR "orderCode" = $1`,
-            [req.params.id]
+            `
+            SELECT *
+            FROM tickets
+            WHERE id::text = $1
+               OR "orderCode" = $1
+            LIMIT 1
+            `,
+            [value]
         );
 
-        res.json(result.rows[0] || {});
-    } catch (err) {
-        console.error('خطأ في جلب التذكرة:', err);
-        res.status(500).json({ error: err.message });
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: "Ticket not found"
+            });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("GET /api/tickets/:id error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// إضافة تذكرة
-app.post('/api/tickets', async (req, res) => {
+// CREATE TICKET
+app.post("/api/tickets", async (req, res) => {
     try {
+        await initDatabase();
+
         const {
             customerName,
             phone,
@@ -121,211 +213,328 @@ app.post('/api/tickets', async (req, res) => {
             partCost
         } = req.body;
 
+        if (!customerName || !phone || !deviceType || !problem) {
+            return res.status(400).json({
+                error: "الاسم ورقم الهاتف ونوع الجهاز والعطل مطلوبة"
+            });
+        }
+
         const orderCode = generateOrderCode();
 
+        const hours = Number(estimatedHours) || 2;
         const rCost = Number(repairCost) || 0;
         const pCost = Number(partCost) || 0;
         const totalCost = rCost + pCost;
 
         const result = await pool.query(
-            `INSERT INTO tickets
-            (
+            `
+            INSERT INTO tickets (
                 "orderCode",
                 "customerName",
                 phone,
                 "deviceType",
                 "deviceSerial",
                 problem,
+                status,
                 "estimatedHours",
+                "techNotes",
                 "repairCost",
                 "partCost",
                 "totalCost"
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-            RETURNING id`,
+            VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11,
+                $12
+            )
+            RETURNING *
+            `,
             [
                 orderCode,
                 customerName,
                 phone,
                 deviceType,
-                deviceSerial || 'غير محدد',
+                deviceSerial || "غير محدد",
                 problem,
-                Number(estimatedHours) || 2,
+                "قيد الانتظار",
+                hours,
+                "",
                 rCost,
                 pCost,
                 totalCost
             ]
         );
 
-        res.json({
-            id: result.rows[0].id,
-            orderCode
-        });
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error("POST /api/tickets error:", error);
 
-    } catch (err) {
-        console.error('خطأ في إضافة التذكرة:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// تعديل تذكرة
-app.put('/api/tickets/:id', async (req, res) => {
+// UPDATE TICKET
+app.put("/api/tickets/:id", async (req, res) => {
     try {
+        await initDatabase();
+
         const {
             status,
             estimatedHours,
             techNotes,
             repairCost,
-            partCost
+            partCost,
+            totalCost
         } = req.body;
 
         const rCost = Number(repairCost) || 0;
         const pCost = Number(partCost) || 0;
-        const totalCost = rCost + pCost;
+
+        const calculatedTotal =
+            totalCost !== undefined
+                ? Number(totalCost) || 0
+                : rCost + pCost;
 
         const result = await pool.query(
-            `UPDATE tickets
-             SET
-                status = $1,
-                "estimatedHours" = $2,
-                "techNotes" = $3,
-                "repairCost" = $4,
-                "partCost" = $5,
-                "totalCost" = $6
-             WHERE id = $7`,
+            `
+            UPDATE tickets
+            SET
+                status = COALESCE($1, status),
+                "estimatedHours" = COALESCE($2, "estimatedHours"),
+                "techNotes" = COALESCE($3, "techNotes"),
+                "repairCost" = COALESCE($4, "repairCost"),
+                "partCost" = COALESCE($5, "partCost"),
+                "totalCost" = COALESCE($6, "totalCost")
+            WHERE id = $7
+            RETURNING *
+            `,
             [
-                status,
-                Number(estimatedHours) || 0,
-                techNotes || '',
-                rCost,
-                pCost,
-                totalCost,
+                status ?? null,
+                estimatedHours !== undefined
+                    ? Number(estimatedHours)
+                    : null,
+                techNotes ?? null,
+                repairCost !== undefined
+                    ? rCost
+                    : null,
+                partCost !== undefined
+                    ? pCost
+                    : null,
+                calculatedTotal,
                 req.params.id
             ]
         );
 
-        res.json({
-            updated: result.rowCount
-        });
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: "Ticket not found"
+            });
+        }
 
-    } catch (err) {
-        console.error('خطأ في تعديل التذكرة:', err);
-        res.status(500).json({ error: err.message });
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("PUT /api/tickets/:id error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// ==================== INVENTORY ====================
+// ===============================
+// INVENTORY
+// ===============================
 
-// جلب المخزون
-app.get('/api/inventory', async (req, res) => {
+// GET INVENTORY
+app.get("/api/inventory", async (req, res) => {
     try {
-        const result = await pool.query(
-            SELECT * FROM inventory ORDER BY id DESC
-        );
+        await initDatabase();
+
+        const result = await pool.query(`
+            SELECT *
+            FROM inventory
+            ORDER BY id DESC
+        `);
 
         res.json(result.rows);
-    } catch (err) {
-        console.error('خطأ في جلب المخزون:', err);
-        res.status(500).json({ error: err.message });
+    } catch (error) {
+        console.error("GET /api/inventory error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// إضافة منتج
-app.post('/api/inventory', async (req, res) => {
+// ADD INVENTORY ITEM
+app.post("/api/inventory", async (req, res) => {
     try {
-        const { name, quantity, price } = req.body;
+        await initDatabase();
 
-        const result = await pool.query(
-            `INSERT INTO inventory
-             (name, quantity, price)
-             VALUES ($1, $2, $3)
-             RETURNING id`,
-            [
-                name,
-                Number(quantity),
-                Number(price)
-            ]
-        );
-
-        res.json({
-            id: result.rows[0].id,
+        const {
             name,
             quantity,
             price
-        });
+        } = req.body;
 
-    } catch (err) {
-        console.error('خطأ في إضافة المنتج:', err);
-        res.status(500).json({ error: err.message });
+        if (!name) {
+            return res.status(400).json({
+                error: "اسم القطعة مطلوب"
+            });
+        }
+
+        const result = await pool.query(
+            `
+            INSERT INTO inventory (
+                name,
+                quantity,
+                price
+            )
+            VALUES ($1, $2, $3)
+            RETURNING *
+            `,
+            [
+                name,
+                Number(quantity) || 0,
+                Number(price) || 0
+            ]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error("POST /api/inventory error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// تعديل منتج
-app.put('/api/inventory/:id', async (req, res) => {
+// UPDATE INVENTORY ITEM
+app.put("/api/inventory/:id", async (req, res) => {
     try {
-        const { name, quantity, price } = req.body;
+        await initDatabase();
+
+        const {
+            name,
+            quantity,
+            price
+        } = req.body;
 
         const result = await pool.query(
-            `UPDATE inventory
-             SET
+            `
+            UPDATE inventory
+            SET
                 name = $1,
                 quantity = $2,
                 price = $3
-             WHERE id = $4`,
+            WHERE id = $4
+            RETURNING *
+            `,
             [
                 name,
-                Number(quantity),
-                Number(price),
+                Number(quantity) || 0,
+                Number(price) || 0,
                 req.params.id
             ]
         );
 
-        res.json({
-            updated: result.rowCount
-        });
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: "Item not found"
+            });
+        }
 
-    } catch (err) {
-        console.error('خطأ في تعديل المنتج:', err);
-        res.status(500).json({ error: err.message });
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error("PUT /api/inventory/:id error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// حذف منتج
-app.delete('/api/inventory/:id', async (req, res) => {
+// DELETE INVENTORY ITEM
+app.delete("/api/inventory/:id", async (req, res) => {
     try {
+        await initDatabase();
+
         const result = await pool.query(
-            DELETE FROM inventory WHERE id = $1,
+            `
+            DELETE FROM inventory
+            WHERE id = $1
+            RETURNING *
+            `,
             [req.params.id]
         );
 
-        res.json({
-            deleted: result.rowCount
-        });
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                error: "Item not found"
+            });
+        }
 
-    } catch (err) {
-        console.error('خطأ في حذف المنتج:', err);
-        res.status(500).json({ error: err.message });
+        res.json({
+            success: true,
+            deleted: result.rows[0]
+        });
+    } catch (error) {
+        console.error("DELETE /api/inventory/:id error:", error);
+
+        res.status(500).json({
+            error: error.message
+        });
     }
 });
 
 
-// تصدير التطبيق لـ Vercel
+// ===============================
+// ERROR HANDLER
+// ===============================
+
+app.use((error, req, res, next) => {
+    console.error("Unhandled error:", error);
+
+    res.status(500).json({
+        error: "Internal server error"
+    });
+});
+
+
+// ===============================
+// VERCEL
+// ===============================
+
 module.exports = app;
 
 
-// تشغيل محلي فقط
+// ===============================
+// LOCAL DEVELOPMENT
+// ===============================
+
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
 
     app.listen(PORT, () => {
-        console.log(السيرفر يعمل على http://localhost:${PORT});
+        console.log(Server running on port ${PORT});
     });
 }
-
 
 
