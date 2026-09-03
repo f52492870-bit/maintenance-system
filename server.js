@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// الاتصال بقاعدة البيانات من Environment Variable
+// الاتصال بقاعدة البيانات PostgreSQL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: {
@@ -75,14 +75,15 @@ function generateOrderCode() {
 // جلب الأجهزة التي لم تُنهَ واختفِ
 app.get('/api/tickets', async (req, res) => {
     try {
-        const result = await pool.query(
-            `SELECT * FROM tickets
-             WHERE status != 'إنهاء واختفاء'
-             ORDER BY id DESC`
-        );
+        const result = await pool.query(`
+            SELECT * FROM tickets
+            WHERE status != 'إنهاء واختفاء'
+            ORDER BY id DESC
+        `);
 
         res.json(result.rows);
     } catch (err) {
+        console.error('خطأ في جلب التذاكر:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -99,6 +100,7 @@ app.get('/api/tickets/:id', async (req, res) => {
 
         res.json(result.rows[0] || {});
     } catch (err) {
+        console.error('خطأ في جلب التذكرة:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -160,6 +162,7 @@ app.post('/api/tickets', async (req, res) => {
         });
 
     } catch (err) {
+        console.error('خطأ في إضافة التذكرة:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -206,6 +209,7 @@ app.put('/api/tickets/:id', async (req, res) => {
         });
 
     } catch (err) {
+        console.error('خطأ في تعديل التذكرة:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -222,6 +226,7 @@ app.get('/api/inventory', async (req, res) => {
 
         res.json(result.rows);
     } catch (err) {
+        console.error('خطأ في جلب المخزون:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -252,6 +257,7 @@ app.post('/api/inventory', async (req, res) => {
         });
 
     } catch (err) {
+        console.error('خطأ في إضافة المنتج:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -282,6 +288,7 @@ app.put('/api/inventory/:id', async (req, res) => {
         });
 
     } catch (err) {
+        console.error('خطأ في تعديل المنتج:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -300,16 +307,17 @@ app.delete('/api/inventory/:id', async (req, res) => {
         });
 
     } catch (err) {
+        console.error('خطأ في حذف المنتج:', err);
         res.status(500).json({ error: err.message });
     }
 });
 
 
-// مهم لـ Vercel
+// تصدير التطبيق لـ Vercel
 module.exports = app;
 
 
-// تشغيل عادي لو شغلناه محليًا
+// تشغيل محلي فقط
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
 
@@ -317,6 +325,4 @@ if (require.main === module) {
         console.log(السيرفر يعمل على http://localhost:${PORT});
     });
 }
-Compose
-Write to Ahmed Essam
 
