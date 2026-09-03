@@ -10,9 +10,13 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // الاتصال بقاعدة البيانات السحابية
+// الاتصال بقاعدة البيانات السحابية مع التأكد من وجود الرابط
+const dbUrl = process.env.TURSO_DATABASE_URL || '';
+const dbToken = process.env.TURSO_AUTH_TOKEN || '';
+
 const db = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
+  url: dbUrl.trim(),
+  authToken: dbToken.trim(),
 });
 
 // إنشاء الجداول تلقائياً
