@@ -57,24 +57,26 @@ function generateOrderCode() {
 }
 
 // جلب التذاكر
+// جلب التذاكر
 app.get('/api/tickets', async (req, res) => {
     try {
         const result = await db.execute("SELECT * FROM tickets WHERE status != 'إنهاء واختفاء' ORDER BY id DESC");
-        res.json(result.rows);
+        // التأكد من إرجاع Rows كمصفوفة
+        res.json(result.rows || []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Database Error:", err);
+        res.status(500).json({ error: err.message, rows: [] });
     }
 });
 
-app.get('/api/tickets/:id', async (req, res) => {
+// جلب المخزون
+app.get('/api/inventory', async (req, res) => {
     try {
-        const result = await db.execute({
-            sql: 'SELECT * FROM tickets WHERE id = ? OR orderCode = ?',
-            args: [req.params.id, req.params.id]
-        });
-        res.json(result.rows[0] || {});
+        const result = await db.execute('SELECT * FROM inventory ORDER BY id DESC');
+        res.json(result.rows || []);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("Database Error:", err);
+        res.status(500).json({ error: err.message, rows: [] });
     }
 });
 
